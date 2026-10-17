@@ -1,0 +1,239 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// 1. ORGANIZATION (Định danh & Tổ chức)
+// ----------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+}
+
+model User {
+  id             String    @id @default(uuid()) @db.Uuid
+  email          String    @unique
+  passwordHash   String    @map("password_hash")
+  fullName       String    @map("full_name")
+  role           Role      @default(EMPLOYEE)
+  
+  departmentId   String?   @map("department_id") @db.Uuid
+  department     Department? @relation(fields: [departmentId], references: [id])
+
+  documents      Document[] @relation("DocumentCreator")
+  approvals      Approval[] @relation("ApprovalUser")
+  receivedDocs   DocumentReceiver[] @relation("DocumentReceiverUser")
+
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  @@map("users")
+}
+
+model Department {
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String
+  
+  parentId       String?      @map("parent_id") @db.Uuid
+  parent         Department?  @relation("DepartmentToDepartment", fields: [parentId], references: [id])
+  children       Department[] @relation("DepartmentToDepartment")
+  
+  users          User[]
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@map("departments")
+}
+
+// ----------------------------------------------------------------------------
+// 2. WORKFLOW TEMPLATES (Cấu hình Luồng duyệt)
+// ----------------------------------------------------------------------------
+
+model Workflow {
+  id             String         @id @default(uuid()) @db.Uuid
+  name           String
+  description    String?
+
+  steps          WorkflowStep[]
+  documentTypes  DocumentType[]
+
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  @@map("workflows")
+}
+
+enum StepType {
+  SEQUENTIAL
+  PARALLEL
+}
+
+enum ApproverType {
+  SPECIFIC_USER
+  DEPARTMENT_MANAGER
+  ROLE
+}
+
+model WorkflowStep {
+  id                  String       @id @default(uuid()) @db.Uuid
+  workflowId          String       @map("workflow_id") @db.Uuid
+  workflow            Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  
+  stepOrder           Int          @map("step_order")
+  stepType            StepType     @default(SEQUENTIAL) @map("step_type")
+  
+  approverType        ApproverType @map("approver_type")
+  approverReferenceId String?      @map("approver_reference_id") @db.Uuid
+  
+  approvals           Approval[]
+
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+
+  @@map("workflow_steps")
+}
+
+// ----------------------------------------------------------------------------
+// 3. DOCUMENTS (Văn bản & Xử lý)
+// ----------------------------------------------------------------------------
+
+model DocumentType {
+  id                String     @id @default(uuid()) @db.Uuid
+  name              String
+  code              String     @unique
+  
+  defaultWorkflowId String?    @map("default_workflow_id") @db.Uuid
+  defaultWorkflow   Workflow?  @relation(fields: [defaultWorkflowId], references: [id])
+  
+  documents         Document[]
+
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  @@map("document_types")
+}
+
+enum DocumentStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+model Document {
+  id               String       @id @default(uuid()) @db.Uuid
+  title            String
+  content          String       @db.Text
+  
+  documentTypeId   String       @map("document_type_id") @db.Uuid
+  documentType     DocumentType @relation(fields: [documentTypeId], references: [id])
+  
+  creatorId        String       @map("creator_id") @db.Uuid
+  creator          User         @relation("DocumentCreator", fields: [creatorId], references: [id])
+  
+  status           DocumentStatus @default(DRAFT)
+  currentStepOrder Int          @default(0) @map("current_step_order")
+
+  metadata         Json?        // Lưu form động (VD: Số tiền, STK, Bảng kê chi tiết)
+
+  attachments      Attachment[]
+  approvals        Approval[]
+  receivers        DocumentReceiver[]
+
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  deletedAt        DateTime?    @map("deleted_at")
+
+  @@index([creatorId])
+  @@index([status])
+  @@map("documents")
+}
+
+model Attachment {
+  id         String   @id @default(uuid()) @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  fileName   String   @map("file_name")
+  fileUrl    String   @map("file_url")
+  
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("document_attachments")
+}
+
+enum ApprovalAction {
+  PENDING
+  APPROVED
+  REJECTED
+  FORWARDED
+  COMMENTED
+}
+
+model Approval {
+  id             String         @id @default(uuid()) @db.Uuid
+  
+  documentId     String         @map("document_id") @db.Uuid
+  document       Document       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  approverId     String         @map("approver_id") @db.Uuid
+  approver       User           @relation("ApprovalUser", fields: [approverId], references: [id])
+  
+  stepId         String?        @map("step_id") @db.Uuid
+  step           WorkflowStep?  @relation(fields: [stepId], references: [id])
+  
+  action         ApprovalAction @default(PENDING)
+  comment        String?        @db.Text
+  signatureUrl   String?        @map("signature_url")
+  signType       String?        @map("sign_type") // INTERNAL | VIETTEL_MYSIGN | USB_TOKEN
+  certInfo       Json?          @map("cert_info") // Serial, Issuer, Subject, Hash, TSA
+  signatureImage String?        @map("signature_image") @db.Text // Base64 canvas draw
+  
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  @@index([documentId])
+  @@map("document_approvals")
+}
+
+// ----------------------------------------------------------------------------
+// 4. DOCUMENT DISTRIBUTION (Văn bản thông báo, chỉ đạo từ trên xuống)
+// ----------------------------------------------------------------------------
+
+enum ReceiveStatus {
+  UNREAD
+  READ
+  ACKNOWLEDGED
+}
+
+model DocumentReceiver {
+  id             String         @id @default(uuid()) @db.Uuid
+  
+  documentId     String         @map("document_id") @db.Uuid
+  document       Document       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  receiverId     String         @map("receiver_id") @db.Uuid
+  receiver       User           @relation("DocumentReceiverUser", fields: [receiverId], references: [id])
+  
+  status         ReceiveStatus  @default(UNREAD)
+  readAt         DateTime?      @map("read_at")
+  
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  @@index([documentId])
+  @@index([receiverId])
+  @@map("document_receivers")
+}
+
