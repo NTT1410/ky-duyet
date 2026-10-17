@@ -75,7 +75,7 @@ export class DocumentController {
   static async approve(req: Request, res: Response): Promise<void> {
     try {
       const approvalId = req.params.approvalId as string;
-      const { userId, action, comment, signType, signatureImage, approverPhone } = req.body;
+      const { userId, action, comment, signType, signatureImage, approverPhone, tokenProvider, tokenPin, tokenSerial } = req.body;
       const result = await DocumentService.approveDocument({
         approvalId,
         userId,
@@ -83,7 +83,10 @@ export class DocumentController {
         comment,
         signType,
         signatureImage,
-        approverPhone
+        approverPhone,
+        tokenProvider,
+        tokenPin,
+        tokenSerial,
       });
       res.status(200).json({ success: true, ...result });
     } catch (error: any) {

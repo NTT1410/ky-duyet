@@ -122,8 +122,11 @@ export class DocumentService {
     signType?: 'INTERNAL' | 'VIETTEL_MYSIGN' | 'USB_TOKEN';
     signatureImage?: string;
     approverPhone?: string;
+    tokenProvider?: string;
+    tokenSerial?: string;
+    tokenPin?: string;
   }) {
-    const { approvalId, userId, action, comment, signType, signatureImage, approverPhone } = params;
+    const { approvalId, userId, action, comment, signType, signatureImage, approverPhone, tokenProvider, tokenSerial, tokenPin } = params;
 
     const approval = await prisma.approval.findUnique({
       where: { id: approvalId },
@@ -162,8 +165,18 @@ export class DocumentService {
 
     let certInfo: any = null;
     if (action === 'APPROVED') {
-      if (signType === 'VIETTEL_MYSIGN') {
-        const { ViettelSignService } = await import('./viettel-sign.service');
+      const { ViettelSignService } = await import('./viettel-sign.service');
+      if (signType === 'USB_TOKEN') {
+        certInfo = await ViettelSignService.signWithUsbToken({
+          approverName: approver?.fullName || 'Người duyệt',
+          approverEmail: approver?.email || '',
+          documentId: approval.documentId,
+          documentTitle: approval.document.title,
+          tokenProvider,
+          tokenSerial,
+          tokenPin,
+        });
+      } else if (signType === 'VIETTEL_MYSIGN') {
         certInfo = await ViettelSignService.signWithViettelMySign({
           approverName: approver?.fullName || 'Người duyệt',
           approverEmail: approver?.email || '',
@@ -171,8 +184,7 @@ export class DocumentService {
           documentId: approval.documentId,
           documentTitle: approval.document.title
         });
-      } else if (signType === 'INTERNAL' || signatureImage) {
-        const { ViettelSignService } = await import('./viettel-sign.service');
+      } else {
         certInfo = ViettelSignService.generateInternalSignature({
           approverName: approver?.fullName || 'Người duyệt',
           approverEmail: approver?.email || '',

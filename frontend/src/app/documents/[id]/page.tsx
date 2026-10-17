@@ -26,7 +26,9 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
   // Action approval state
   const [comment, setComment] = useState("");
   const [submittingAction, setSubmittingAction] = useState(false);
-  const [signMethod, setSignMethod] = useState<"VIETTEL_MYSIGN" | "CANVAS" | "STANDARD">("VIETTEL_MYSIGN");
+  const [signMethod, setSignMethod] = useState<"CANVAS" | "USB_TOKEN" | "VIETTEL_MYSIGN">("CANVAS");
+  const [tokenProvider, setTokenProvider] = useState("VIETTEL-CA USB TOKEN");
+  const [tokenPin, setTokenPin] = useState("12345678");
   const [approverPhone, setApproverPhone] = useState("0988 123 456");
 
   // Viettel MySign Interactive Simulation State
@@ -138,17 +140,24 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
       return;
     }
 
-    // Xử lý luồng ký số Viettel MySign
-    if (action === "APPROVED" && signMethod === "VIETTEL_MYSIGN") {
-      setSubmittingAction(true);
-      setViettelStep(1); // Bước 1: Kết nối Gateway
+    // Kiểm tra và xử lý theo từng phương thức ký
+    if (action === "APPROVED") {
+      if (signMethod === "VIETTEL_MYSIGN") {
+        toast.info("Chức năng Ký số Viettel MySign đang tạm khóa. Vui lòng chọn Ký bằng USB Token hoặc Ký tay!");
+        return;
+      }
 
-      await new Promise(r => setTimeout(r, 1200));
-      setViettelStep(2); // Bước 2: Chờ Sếp quét FaceID trên điện thoại
-
-      await new Promise(r => setTimeout(r, 2200));
-      setViettelStep(3); // Bước 3: Xác thực sinh trắc học thành công
-      await new Promise(r => setTimeout(r, 800));
+      if (signMethod === "USB_TOKEN") {
+        if (!tokenPin.trim()) {
+          toast.warning("Vui lòng nhập mã PIN của USB Token để xác thực ký số!");
+          return;
+        }
+        setSubmittingAction(true);
+        // Mô phỏng kết nối và đọc phần cứng USB Token PKCS#11
+        await new Promise(r => setTimeout(r, 600));
+      } else {
+        setSubmittingAction(true);
+      }
     } else {
       setSubmittingAction(true);
     }
@@ -168,10 +177,12 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
         body: JSON.stringify({
           userId: currentUser.id,
           action,
-          comment: comment.trim() || (action === "APPROVED" ? (signMethod === "VIETTEL_MYSIGN" ? "Đã ký số qua Viettel MySign" : "Đã đồng ý phê duyệt") : "Từ chối"),
+          comment: comment.trim() || (action === "APPROVED" ? (signMethod === "USB_TOKEN" ? `Đã ký số bằng ${tokenProvider}` : "Đã đồng ý phê duyệt") : "Từ chối"),
           signType: action === "APPROVED" ? signMethod : undefined,
           signatureImage,
           approverPhone,
+          tokenProvider,
+          tokenPin,
         }),
       });
 
@@ -383,7 +394,7 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                       <Badge className="bg-blue-600 text-white font-medium">Lượt của bạn</Badge>
                     </div>
                     <CardDescription className="text-blue-900/70">
-                      Chọn phương thức ký xác thực số (Viettel MySign hoặc Ký tay điện tử) để hoàn tất phê duyệt văn bản.
+                      Chọn phương thức ký xác thực số (Ký tay điện tử hoặc Ký số bằng USB Token phần cứng) để hoàn tất phê duyệt văn bản.
                     </CardDescription>
                   </CardHeader>
                   
@@ -392,83 +403,121 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                     {/* Method Selector Tabs */}
                     <div className="space-y-2">
                       <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider block">
-                        Phương thức ký số:
+                        Chọn phương thức ký số:
                       </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div 
-                          onClick={() => setSignMethod("VIETTEL_MYSIGN")}
-                          className={`p-3.5 rounded-lg border-2 cursor-pointer transition-all flex items-start gap-3 ${
-                            signMethod === "VIETTEL_MYSIGN" 
-                              ? "border-red-500 bg-red-50/40 shadow-sm" 
-                              : "border-slate-200 hover:border-slate-300 bg-white"
-                          }`}
-                        >
-                          <div className="w-9 h-9 rounded-md bg-red-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-sm">
-                            VT
-                          </div>
-                          <div>
-                            <div className="font-semibold text-slate-900 text-sm flex items-center gap-1.5">
-                              Viettel MySign (Cloud CA)
-                              <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.2 rounded font-bold">Khuyên dùng</span>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-0.5">Ký số từ xa qua App điện thoại (FaceID / Vân tay)</p>
-                          </div>
-                        </div>
-
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {/* Option 1: Canvas Drawing */}
                         <div 
                           onClick={() => setSignMethod("CANVAS")}
-                          className={`p-3.5 rounded-lg border-2 cursor-pointer transition-all flex items-start gap-3 ${
+                          className={`p-3.5 rounded-lg border-2 cursor-pointer transition-all flex flex-col justify-between ${
                             signMethod === "CANVAS" 
                               ? "border-blue-600 bg-blue-50/40 shadow-sm" 
                               : "border-slate-200 hover:border-slate-300 bg-white"
                           }`}
                         >
-                          <div className="w-9 h-9 rounded-md bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-sm">
-                            ✍️
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-md bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-sm">
+                              ✍️
+                            </div>
+                            <div>
+                              <div className="font-semibold text-slate-900 text-sm">Ký tay điện tử</div>
+                              <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-bold">Khuyên dùng Mobile</span>
+                            </div>
                           </div>
-                          <div>
-                            <div className="font-semibold text-slate-900 text-sm">Ký điện tử & Vẽ chữ ký tay</div>
-                            <p className="text-xs text-slate-500 mt-0.5">Vẽ trực tiếp trên màn hình hoặc đóng dấu nội bộ</p>
+                          <p className="text-xs text-slate-500 mt-2">Vẽ trực tiếp ngón tay trên màn hình hoặc chuột</p>
+                        </div>
+
+                        {/* Option 2: USB Token (Hardware PKCS#11) */}
+                        <div 
+                          onClick={() => setSignMethod("USB_TOKEN")}
+                          className={`p-3.5 rounded-lg border-2 cursor-pointer transition-all flex flex-col justify-between ${
+                            signMethod === "USB_TOKEN" 
+                              ? "border-amber-500 bg-amber-50/40 shadow-sm" 
+                              : "border-slate-200 hover:border-slate-300 bg-white"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-md bg-amber-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-sm">
+                              🔑
+                            </div>
+                            <div>
+                              <div className="font-semibold text-slate-900 text-sm">Ký USB Token</div>
+                              <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-bold">Hardware PKCS#11</span>
+                            </div>
                           </div>
+                          <p className="text-xs text-slate-500 mt-2">Cắm USB Token (Viettel, VNPT, BKAV, FPT...) để ký</p>
+                        </div>
+
+                        {/* Option 3: Viettel MySign (Temporarily Locked) */}
+                        <div 
+                          onClick={() => toast.info("Chức năng Ký số từ xa Viettel MySign đang tạm khóa chờ cấu hình API với Viettel. Vui lòng ký bằng USB Token hoặc Ký tay!")}
+                          className="p-3.5 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50/70 opacity-60 cursor-not-allowed flex flex-col justify-between relative select-none"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-md bg-slate-400 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                              🔒
+                            </div>
+                            <div>
+                              <div className="font-semibold text-slate-500 text-sm flex items-center gap-1">
+                                Viettel MySign
+                              </div>
+                              <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.2 rounded font-bold">🔒 Tạm khóa (Chờ API)</span>
+                            </div>
+                          </div>
+                          <p className="text-xs text-slate-400 mt-2">Ký từ xa qua FaceID (Tạm khóa chờ nghiệm thu API)</p>
                         </div>
                       </div>
                     </div>
 
-                    {/* Method 1: Viettel MySign Config */}
-                    {signMethod === "VIETTEL_MYSIGN" && (
-                      <div className="p-4 bg-red-50/50 border border-red-200 rounded-lg space-y-3 animate-in fade-in">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-red-950 uppercase tracking-wider flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-red-600"></span>
-                            Thông tin tài khoản Viettel MySign của bạn
+                    {/* Method 1 Config: USB Token */}
+                    {signMethod === "USB_TOKEN" && (
+                      <div className="p-4 bg-amber-50/50 border border-amber-200 rounded-lg space-y-4 animate-in fade-in">
+                        <div className="flex items-center justify-between border-b border-amber-200/60 pb-2">
+                          <span className="text-xs font-bold text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-amber-600"></span>
+                            Thông số thiết bị USB Token phần cứng (PKCS#11)
                           </span>
-                          <span className="text-[11px] text-red-700 font-medium">Chứng thư số cá nhân/DN</span>
+                          <span className="text-[11px] text-amber-700 font-semibold bg-amber-100/80 px-2 py-0.5 rounded">
+                            Tự động nhận diện thiết bị
+                          </span>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div className="space-y-1">
-                            <label className="text-xs text-slate-600">Số điện thoại đăng ký MySign:</label>
+                            <label className="text-xs font-semibold text-slate-700">Nhà cung cấp USB Token:</label>
+                            <select
+                              value={tokenProvider}
+                              onChange={(e) => setTokenProvider(e.target.value)}
+                              className="w-full h-9 px-3 bg-white border border-slate-300 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-500"
+                            >
+                              <option value="VIETTEL-CA USB TOKEN">Viettel-CA USB Token</option>
+                              <option value="VNPT-CA USB TOKEN">VNPT-CA USB Token</option>
+                              <option value="FPT-CA USB TOKEN">FPT-CA USB Token</option>
+                              <option value="BKAV-CA USB TOKEN">BKAV-CA USB Token</option>
+                              <option value="MISA eSign USB TOKEN">MISA eSign USB Token</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-700">Mã PIN của USB Token:</label>
                             <Input 
-                              value={approverPhone}
-                              onChange={(e) => setApproverPhone(e.target.value)}
-                              placeholder="0988xxxxxx"
-                              className="bg-white text-sm font-medium"
+                              type="password"
+                              value={tokenPin}
+                              onChange={(e) => setTokenPin(e.target.value)}
+                              placeholder="Nhập mã PIN Token (mặc định: 12345678)"
+                              className="bg-white text-sm font-medium focus-visible:ring-amber-500"
                             />
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-xs text-slate-600">Trạng thái App Viettel:</label>
-                            <div className="h-9 px-3 bg-white border border-slate-200 rounded-md flex items-center text-xs font-semibold text-emerald-700 gap-1.5">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                              Sẵn sàng nhận lệnh ký từ xa
-                            </div>
-                          </div>
                         </div>
-                        <p className="text-xs text-slate-500 italic">
-                          Khi bạn bấm nút Ký, hệ thống sẽ đẩy thông báo trực tiếp đến App Viettel MySign trên điện thoại của bạn để quét FaceID/Vân tay.
-                        </p>
+
+                        <div className="flex items-center gap-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-md text-xs text-emerald-800">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                          <span><strong>Đã kết nối thiết bị USB Token:</strong> Mã băm SHA-256 của văn bản sẽ được mã hóa và ký trực tiếp trong vi xử lý bảo mật của Token.</span>
+                        </div>
                       </div>
                     )}
 
-                    {/* Method 2: Handwritten Canvas */}
+                    {/* Method 2 Config: Handwritten Canvas */}
                     {signMethod === "CANVAS" && (
                       <div className="space-y-2 p-4 bg-slate-50 border border-slate-200 rounded-lg animate-in fade-in">
                         <div className="flex items-center justify-between">
@@ -535,14 +584,14 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                         disabled={submittingAction}
                         onClick={() => handleApproveAction("APPROVED")}
                         className={`text-white shadow-md px-6 w-full sm:w-auto ${
-                          signMethod === "VIETTEL_MYSIGN" 
-                            ? "bg-red-600 hover:bg-red-700" 
+                          signMethod === "USB_TOKEN" 
+                            ? "bg-amber-600 hover:bg-amber-700" 
                             : "bg-emerald-600 hover:bg-emerald-700"
                         }`}
                       >
                         {submittingAction 
-                          ? (signMethod === "VIETTEL_MYSIGN" ? "Đang xác thực Viettel..." : "Đang xử lý...")
-                          : (signMethod === "VIETTEL_MYSIGN" ? "📱 Ký số qua Viettel MySign" : "✍️ Ký & Phê duyệt")}
+                          ? "Đang xử lý ký duyệt..." 
+                          : (signMethod === "USB_TOKEN" ? "🔑 Xác thực PIN & Ký USB Token" : "✍️ Ký tay & Phê duyệt")}
                       </Button>
                     </div>
                   </CardFooter>
@@ -594,6 +643,7 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                       const isApproved = appr.action === "APPROVED";
                       const isRejected = appr.action === "REJECTED";
                       const isPending = appr.action === "PENDING";
+                      const isUsbToken = appr.signType === "USB_TOKEN" || appr.certInfo?.provider === "USB_TOKEN";
                       const isViettel = appr.signType === "VIETTEL_MYSIGN" || appr.certInfo?.provider === "VIETTEL_MYSIGN";
 
                       return (
@@ -602,14 +652,14 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                           <div 
                             className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 bg-white flex items-center justify-center ${
                               isApproved 
-                                ? (isViettel ? "border-red-600 bg-red-50 text-red-600" : "border-emerald-500 bg-emerald-50 text-emerald-600")
+                                ? (isUsbToken ? "border-amber-500 bg-amber-50 text-amber-600" : isViettel ? "border-red-600 bg-red-50 text-red-600" : "border-emerald-500 bg-emerald-50 text-emerald-600")
                                 : isRejected 
                                 ? "border-red-500 bg-red-50 text-red-600" 
                                 : "border-amber-500 bg-amber-50 text-amber-600"
                             }`}
                           >
                             <div className={`w-1.5 h-1.5 rounded-full ${
-                              isApproved ? (isViettel ? "bg-red-600" : "bg-emerald-600") : isRejected ? "bg-red-600" : "bg-amber-500"
+                              isApproved ? (isUsbToken ? "bg-amber-500" : isViettel ? "bg-red-600" : "bg-emerald-600") : isRejected ? "bg-red-600" : "bg-amber-500"
                             }`} />
                           </div>
 
@@ -619,8 +669,8 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                                 Bước {idx + 1}: {appr.approver?.fullName}
                               </span>
                               {isApproved && (
-                                <Badge variant="secondary" className={`${isViettel ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"} text-[10px] px-1.5 py-0`}>
-                                  {isViettel ? "Ký số Viettel-CA" : "Đã duyệt"}
+                                <Badge variant="secondary" className={`${isUsbToken ? "bg-amber-50 text-amber-800 border-amber-300" : isViettel ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"} text-[10px] px-1.5 py-0`}>
+                                  {isUsbToken ? "Ký số USB Token" : isViettel ? "Ký số Viettel-CA" : "Đã duyệt"}
                                 </Badge>
                               )}
                               {isRejected && (
@@ -645,7 +695,40 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                               </p>
                             )}
 
-                            {/* Digital Signature Seal Display */}
+                            {/* Digital Signature Seal Display for USB Token */}
+                            {isApproved && isUsbToken && appr.certInfo && (
+                              <div className="p-3 bg-amber-50/70 border-2 border-amber-500/80 rounded-md text-amber-950 space-y-1.5 shadow-xs">
+                                <div className="flex items-center justify-between border-b border-amber-200 pb-1">
+                                  <span className="text-[10px] font-bold tracking-wider text-amber-800 uppercase flex items-center gap-1">
+                                    🔑 CHỮ KÝ SỐ USB TOKEN (PKCS#11)
+                                  </span>
+                                  <span className="text-[9px] text-emerald-700 font-bold bg-emerald-100 px-1 py-0.2 rounded">
+                                    HỢP LỆ
+                                  </span>
+                                </div>
+                                <div className="text-[11px] font-bold text-amber-950">
+                                  Ký bởi: {appr.approver?.fullName}
+                                </div>
+                                <div className="text-[10px] text-slate-700">
+                                  Thiết bị: <span className="font-semibold">{appr.certInfo.tokenProvider || appr.certInfo.issuer}</span>
+                                </div>
+                                <div className="text-[10px] text-slate-600 font-mono truncate">
+                                  Serial: {appr.certInfo.serialNumber}
+                                </div>
+                                <div className="text-[10px] text-slate-500">
+                                  Thời gian TSA: {new Date(appr.certInfo.tsaTimestamp || appr.createdAt).toLocaleString("vi-VN")}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveCert(appr.certInfo)}
+                                  className="text-[10px] text-amber-800 font-semibold hover:underline pt-0.5 block"
+                                >
+                                  Tra cứu chứng thư số X.509 &rarr;
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Digital Signature Seal Display for Viettel MySign */}
                             {isApproved && isViettel && appr.certInfo && (
                               <div className="p-3 bg-red-50/70 border-2 border-red-500/80 rounded-md text-red-950 space-y-1.5 shadow-xs">
                                 <div className="flex items-center justify-between border-b border-red-200 pb-1">
@@ -784,11 +867,11 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
           <div className="bg-white rounded-xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded bg-red-600 text-white flex items-center justify-center text-xs font-bold">
-                  VT
+                <div className={`w-6 h-6 rounded ${activeCert.provider === "USB_TOKEN" ? "bg-amber-600" : "bg-red-600"} text-white flex items-center justify-center text-xs font-bold`}>
+                  {activeCert.provider === "USB_TOKEN" ? "🔑" : "VT"}
                 </div>
                 <h3 className="font-heading font-bold text-lg text-slate-900">
-                  Chứng thư số Viettel-CA
+                  {activeCert.provider === "USB_TOKEN" ? "Chứng thư số USB Token (PKCS#11)" : "Chứng thư số Viettel-CA"}
                 </h3>
               </div>
               <button 
