@@ -34,4 +34,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   detectUsbTokens: (): Promise<TokenDetectionResult> => ipcRenderer.invoke('usb-token:detect'),
   signWithUsbToken: (params: TokenSignParams): Promise<TokenSignResult> => ipcRenderer.invoke('usb-token:sign', params),
   getVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  checkUpdate: (manual: boolean = true): Promise<any> => ipcRenderer.invoke('app:check-update', manual),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
 });

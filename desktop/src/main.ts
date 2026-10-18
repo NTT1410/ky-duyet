@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import path from 'path';
 import { exec } from 'child_process';
 import util from 'util';
@@ -9,6 +9,7 @@ const execAsync = util.promisify(exec);
 let mainWindow: BrowserWindow | null = null;
 
 const APP_URL = process.env.APP_URL || 'https://ky-duyet.vercel.app';
+const BACKEND_URL = process.env.BACKEND_URL || 'https://ky-duyet-backend.vercel.app';
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -28,6 +29,13 @@ function createWindow() {
 
   // Load live Next.js Web Portal
   mainWindow.loadURL(APP_URL);
+
+  // Tự động kiểm tra bản cập nhật mới sau khi ứng dụng tải xong
+  mainWindow.webContents.once('did-finish-load', () => {
+    setTimeout(() => {
+      checkForUpdates(false);
+    }, 3500);
+  });
 
   // Open external links in default OS browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -186,4 +194,106 @@ ipcMain.handle('usb-token:sign', async (_event, params: {
   };
 });
 
+// ============================================================================
+// Auto-Update & Version Checking System
+// ============================================================================
+
+function compareVersions(v1: string, v2: string): number {
+  const parts1 = (v1 || '0').replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  const parts2 = (v2 || '0').replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  const maxLen = Math.max(parts1.length, parts2.length);
+  for (let i = 0; i < maxLen; i++) {
+    const p1 = parts1[i] || 0;
+    const p2 = parts2[i] || 0;
+    if (p1 > p2) return 1;
+    if (p1 < p2) return -1;
+  }
+  return 0;
+}
+
+async function checkForUpdates(manual: boolean = false) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/v1/system/version`);
+    const data = await res.json();
+    if (!data.success || !data.data) {
+      if (manual && mainWindow) {
+        dialog.showMessageBox(mainWindow, {
+          type: 'warning',
+          title: 'Kiểm tra bản cập nhật',
+          message: 'Không thể kiểm tra thông tin cập nhật.',
+          detail: 'Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau.',
+          buttons: ['Đóng'],
+        });
+      }
+      return { success: false, message: 'Không thể kết nối máy chủ' };
+    }
+
+    const currentVersion = app.getVersion();
+    const { latestVersion, downloadUrl, releaseNotes } = data.data;
+    const hasNewVersion = compareVersions(latestVersion, currentVersion) > 0;
+
+    if (hasNewVersion) {
+      if (mainWindow) {
+        const choice = await dialog.showMessageBox(mainWindow, {
+          type: 'info',
+          title: 'Phát hiện bản cập nhật mới',
+          message: `Đã có phiên bản mới (v${latestVersion}) cho Ký Duyệt Desktop!`,
+          detail: `Phiên bản hiện tại: v${currentVersion}\nPhiên bản mới nhất: v${latestVersion}\n\nNội dung cập nhật:\n${releaseNotes || 'Cải tiến hiệu năng và tính năng mới.'}\n\nBạn có muốn tải bản cập nhật mới ngay bây giờ không?`,
+          buttons: ['Tải bản mới ngay', 'Để sau'],
+          defaultId: 0,
+          cancelId: 1,
+        });
+
+        if (choice.response === 0 && downloadUrl) {
+          shell.openExternal(downloadUrl);
+        }
+      }
+
+      return {
+        success: true,
+        hasUpdate: true,
+        currentVersion,
+        latestVersion,
+        downloadUrl,
+        releaseNotes,
+      };
+    } else {
+      if (manual && mainWindow) {
+        dialog.showMessageBox(mainWindow, {
+          type: 'info',
+          title: 'Kiểm tra bản cập nhật',
+          message: 'Bạn đang sử dụng phiên bản mới nhất!',
+          detail: `Phiên bản hiện tại v${currentVersion} là phiên bản mới nhất của ứng dụng Ký Duyệt Desktop.`,
+          buttons: ['Tuyệt vời'],
+        });
+      }
+
+      return {
+        success: true,
+        hasUpdate: false,
+        currentVersion,
+        latestVersion,
+        message: 'Đang dùng phiên bản mới nhất',
+      };
+    }
+  } catch (err: any) {
+    if (manual && mainWindow) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'error',
+        title: 'Lỗi kiểm tra cập nhật',
+        message: 'Không thể kết nối tới máy chủ cập nhật.',
+        detail: err.message,
+        buttons: ['Đóng'],
+      });
+    }
+    return { success: false, error: err.message };
+  }
+}
+
 ipcMain.handle('app:version', () => app.getVersion());
+ipcMain.handle('app:check-update', (_event, manual: boolean) => checkForUpdates(Boolean(manual)));
+ipcMain.handle('app:open-external', (_event, url: string) => {
+  if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+    shell.openExternal(url);
+  }
+});

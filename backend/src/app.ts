@@ -20,6 +20,7 @@ import documentRouter from './routes/document.route';
 import authRouter from './routes/auth.route';
 import userRouter from './routes/user.route';
 import documentTypeRouter from './routes/document-type.route';
+import systemRouter from './routes/system.route';
 
 // Health Check Route
 app.get('/health', (_req, res) => {
@@ -31,5 +32,6 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', userRouter);
 app.use('/api/v1/documents', documentRouter);
 app.use('/api/v1/document-types', documentTypeRouter);
+app.use('/api/v1/system', systemRouter);
 
 export default app;
