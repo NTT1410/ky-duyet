@@ -77,6 +77,12 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
   }, []);
 
   useEffect(() => {
+    if (!isDesktopApp && signMethod === "USB_TOKEN") {
+      setSignMethod("CANVAS");
+    }
+  }, [isDesktopApp, signMethod]);
+
+  useEffect(() => {
     const token = getCookie("auth_token") as string;
     if (!token) {
       router.push("/login");
@@ -176,17 +182,22 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
     // Kiểm tra và xử lý theo từng phương thức ký
     if (action === "APPROVED") {
       if (signMethod === "VIETTEL_MYSIGN") {
-        toast.info("Chức năng Ký số Viettel MySign đang tạm khóa. Vui lòng chọn Ký bằng USB Token hoặc Ký tay!");
+        toast.info("Chức năng Ký số Viettel MySign đang tạm khóa. Vui lòng chọn " + (isDesktopApp ? "Ký bằng USB Token hoặc Ký tay!" : "Ký tay điện tử!"));
         return;
       }
 
       if (signMethod === "USB_TOKEN") {
+        if (!isDesktopApp) {
+          toast.error("Trình duyệt web không hỗ trợ kết nối trực tiếp USB Token vật lý. Vui lòng sử dụng Phần mềm Ký Duyệt Desktop hoặc chọn Ký tay điện tử.");
+          return;
+        }
+
         if (!tokenPin.trim()) {
           toast.warning("Vui lòng nhập mã PIN của USB Token để xác thực ký số!");
           return;
         }
 
-        if (isDesktopApp && detectedTokens.length === 0) {
+        if (detectedTokens.length === 0) {
           toast.error("Chưa phát hiện USB Token cắm vào máy tính!", {
             description: "Vui lòng cắm USB Token Viettel/VNPT vào máy tính và bấm 'Quét lại' trước khi ký.",
           });
@@ -194,7 +205,7 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
         }
 
         setSubmittingAction(true);
-        // Mô phỏng kết nối và đọc phần cứng USB Token PKCS#11
+        // Đọc phần cứng USB Token PKCS#11 qua Desktop IPC
         await new Promise(r => setTimeout(r, 600));
       } else {
         setSubmittingAction(true);
@@ -435,7 +446,9 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                       <Badge className="bg-blue-600 text-white font-medium">Lượt của bạn</Badge>
                     </div>
                     <CardDescription className="text-blue-900/70">
-                      Chọn phương thức ký xác thực số (Ký tay điện tử hoặc Ký số bằng USB Token phần cứng) để hoàn tất phê duyệt văn bản.
+                      {isDesktopApp 
+                        ? "Chọn phương thức ký xác thực (Ký tay điện tử hoặc Ký số bằng USB Token phần cứng) để hoàn tất phê duyệt văn bản."
+                        : "Ký tay điện tử trực tiếp trên trình duyệt để hoàn tất phê duyệt văn bản."}
                     </CardDescription>
                   </CardHeader>
                   
@@ -443,10 +456,18 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                     
                     {/* Method Selector Tabs */}
                     <div className="space-y-2">
-                      <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider block">
-                        Chọn phương thức ký số:
-                      </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider block">
+                          Chọn phương thức ký số:
+                        </label>
+                        {!isDesktopApp && (
+                          <span className="text-[11px] text-slate-500 hidden sm:inline-flex items-center gap-1">
+                            💻 Cần ký bằng USB Token phần cứng? Sử dụng <strong>Bản Desktop</strong>
+                          </span>
+                        )}
+                      </div>
+
+                      <div className={`grid grid-cols-1 ${isDesktopApp ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-3`}>
                         {/* Option 1: Canvas Drawing */}
                         <div 
                           onClick={() => setSignMethod("CANVAS")}
@@ -462,36 +483,40 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                             </div>
                             <div>
                               <div className="font-semibold text-slate-900 text-sm">Ký tay điện tử</div>
-                              <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-bold">Khuyên dùng Mobile</span>
+                              <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-bold">
+                                {isDesktopApp ? "Khuyên dùng Mobile / Cảm ứng" : "Khuyên dùng trên Web"}
+                              </span>
                             </div>
                           </div>
                           <p className="text-xs text-slate-500 mt-2">Vẽ trực tiếp ngón tay trên màn hình hoặc chuột</p>
                         </div>
 
-                        {/* Option 2: USB Token (Hardware PKCS#11) */}
-                        <div 
-                          onClick={() => setSignMethod("USB_TOKEN")}
-                          className={`p-3.5 rounded-lg border-2 cursor-pointer transition-all flex flex-col justify-between ${
-                            signMethod === "USB_TOKEN" 
-                              ? "border-amber-500 bg-amber-50/40 shadow-sm" 
-                              : "border-slate-200 hover:border-slate-300 bg-white"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-md bg-amber-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-sm">
-                              🔑
+                        {/* Option 2: USB Token (Hardware PKCS#11) - CHỈ HIỂN THỊ TRÊN DESKTOP APP */}
+                        {isDesktopApp && (
+                          <div 
+                            onClick={() => setSignMethod("USB_TOKEN")}
+                            className={`p-3.5 rounded-lg border-2 cursor-pointer transition-all flex flex-col justify-between ${
+                              signMethod === "USB_TOKEN" 
+                                ? "border-amber-500 bg-amber-50/40 shadow-sm" 
+                                : "border-slate-200 hover:border-slate-300 bg-white"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-md bg-amber-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-sm">
+                                🔑
+                              </div>
+                              <div>
+                                <div className="font-semibold text-slate-900 text-sm">Ký USB Token</div>
+                                <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-bold">Hardware PKCS#11</span>
+                              </div>
                             </div>
-                            <div>
-                              <div className="font-semibold text-slate-900 text-sm">Ký USB Token</div>
-                              <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-bold">Hardware PKCS#11</span>
-                            </div>
+                            <p className="text-xs text-slate-500 mt-2">Cắm USB Token (Viettel, VNPT, BKAV, FPT...) để ký</p>
                           </div>
-                          <p className="text-xs text-slate-500 mt-2">Cắm USB Token (Viettel, VNPT, BKAV, FPT...) để ký</p>
-                        </div>
+                        )}
 
                         {/* Option 3: Viettel MySign (Temporarily Locked) */}
                         <div 
-                          onClick={() => toast.info("Chức năng Ký số từ xa Viettel MySign đang tạm khóa chờ cấu hình API với Viettel. Vui lòng ký bằng USB Token hoặc Ký tay!")}
+                          onClick={() => toast.info("Chức năng Ký số từ xa Viettel MySign đang tạm khóa chờ cấu hình API với Viettel. Vui lòng ký bằng " + (isDesktopApp ? "USB Token hoặc Ký tay!" : "Ký tay!"))}
                           className="p-3.5 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50/70 opacity-60 cursor-not-allowed flex flex-col justify-between relative select-none"
                         >
                           <div className="flex items-center gap-2">
@@ -510,8 +535,8 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                       </div>
                     </div>
 
-                    {/* Method 1 Config: USB Token */}
-                    {signMethod === "USB_TOKEN" && (
+                    {/* Method 1 Config: USB Token - CHỈ HIỂN THỊ TRÊN DESKTOP APP */}
+                    {isDesktopApp && signMethod === "USB_TOKEN" && (
                       <div className="p-4 bg-amber-50/50 border border-amber-200 rounded-lg space-y-4 animate-in fade-in">
                         <div className="flex items-center justify-between border-b border-amber-200/60 pb-2">
                           <span className="text-xs font-bold text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
@@ -519,53 +544,42 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                             Thông số thiết bị USB Token phần cứng (PKCS#11)
                           </span>
                           <span className="text-[11px] text-amber-700 font-semibold bg-amber-100/80 px-2 py-0.5 rounded">
-                            {isDesktopApp ? "🖥️ Desktop Hardware Engine" : "🌐 Web Simulation"}
+                            🖥️ Desktop Hardware Engine
                           </span>
                         </div>
 
-                        {/* Real-time Hardware Status based on Desktop or Web */}
-                        {isDesktopApp ? (
-                          detectedTokens.length > 0 ? (
-                            <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-md space-y-1 text-xs text-emerald-900">
-                              <div className="font-bold flex items-center gap-1.5 text-emerald-800">
-                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-pulse"></span>
-                                ĐÃ KẾT NỐI USB TOKEN THẬT TRÊN MÁY TÍNH
-                              </div>
-                              <div className="text-slate-800 truncate">
-                                <strong>Chủ thể:</strong> {detectedTokens[0].subject}
-                              </div>
-                              <div className="text-slate-600 font-mono text-[11px]">
-                                <strong>Serial:</strong> {detectedTokens[0].serialNumber} | <strong>Hạn dùng:</strong> {detectedTokens[0].validTo}
-                              </div>
+                        {/* Real-time Hardware Status on Desktop */}
+                        {detectedTokens.length > 0 ? (
+                          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-md space-y-1 text-xs text-emerald-900">
+                            <div className="font-bold flex items-center gap-1.5 text-emerald-800">
+                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                              ĐÃ KẾT NỐI USB TOKEN THẬT TRÊN MÁY TÍNH
                             </div>
-                          ) : (
-                            <div className="p-3 bg-red-50 border border-red-300 rounded-md flex items-center justify-between gap-3 text-xs text-red-900">
-                              <div className="flex items-center gap-2">
-                                <span className="text-base shrink-0">⚠️</span>
-                                <div>
-                                  <strong>Chưa cắm USB Token:</strong> Không tìm thấy chứng thư số trong USB. Vui lòng cắm USB vào máy tính để ký.
-                                </div>
-                              </div>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                disabled={isDetectingToken}
-                                onClick={detectUsbHardware}
-                                className="text-xs border-red-300 bg-white hover:bg-red-50 text-red-700 h-7 shrink-0 font-medium"
-                              >
-                                {isDetectingToken ? "Đang quét..." : "🔄 Quét lại"}
-                              </Button>
+                            <div className="text-slate-800 truncate">
+                              <strong>Chủ thể:</strong> {detectedTokens[0].subject}
                             </div>
-                          )
+                            <div className="text-slate-600 font-mono text-[11px]">
+                              <strong>Serial:</strong> {detectedTokens[0].serialNumber} | <strong>Hạn dùng:</strong> {detectedTokens[0].validTo}
+                            </div>
+                          </div>
                         ) : (
-                          <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-xs text-blue-900 space-y-1">
-                            <div className="font-semibold flex items-center gap-1.5 text-blue-800">
-                              <span>🌐 Đang sử dụng phiên bản Web Browser</span>
+                          <div className="p-3 bg-red-50 border border-red-300 rounded-md flex items-center justify-between gap-3 text-xs text-red-900">
+                            <div className="flex items-center gap-2">
+                              <span className="text-base shrink-0">⚠️</span>
+                              <div>
+                                <strong>Chưa cắm USB Token:</strong> Không tìm thấy chứng thư số trong USB. Vui lòng cắm USB vào máy tính để ký.
+                              </div>
                             </div>
-                            <p className="text-slate-600 text-[11px] leading-relaxed">
-                              Trình duyệt web không thể can thiệp trực tiếp vào cổng USB vật lý. Bạn có thể ký duyệt bằng <strong>Ký tay điện tử</strong>, hoặc mở bằng <strong>Phần mềm Ký Duyệt Desktop</strong> để cắm USB Token thật.
-                            </p>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={isDetectingToken}
+                              onClick={detectUsbHardware}
+                              className="text-xs border-red-300 bg-white hover:bg-red-50 text-red-700 h-7 shrink-0 font-medium"
+                            >
+                              {isDetectingToken ? "Đang quét..." : "🔄 Quét lại"}
+                            </Button>
                           </div>
                         )}
 
@@ -671,14 +685,14 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                         disabled={submittingAction}
                         onClick={() => handleApproveAction("APPROVED")}
                         className={`text-white shadow-md px-6 w-full sm:w-auto ${
-                          signMethod === "USB_TOKEN" 
+                          isDesktopApp && signMethod === "USB_TOKEN" 
                             ? "bg-amber-600 hover:bg-amber-700" 
                             : "bg-emerald-600 hover:bg-emerald-700"
                         }`}
                       >
                         {submittingAction 
                           ? "Đang xử lý ký duyệt..." 
-                          : (signMethod === "USB_TOKEN" ? "🔑 Xác thực PIN & Ký USB Token" : "✍️ Ký tay & Phê duyệt")}
+                          : (isDesktopApp && signMethod === "USB_TOKEN" ? "🔑 Xác thực PIN & Ký USB Token" : "✍️ Ký tay & Phê duyệt")}
                       </Button>
                     </div>
                   </CardFooter>
