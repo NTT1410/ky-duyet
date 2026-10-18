@@ -43,6 +43,39 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
   // Selected Cert Info to view modal
   const [activeCert, setActiveCert] = useState<any>(null);
 
+  // Desktop Native Electron Detection State
+  const [isDesktopApp, setIsDesktopApp] = useState(false);
+  const [detectedTokens, setDetectedTokens] = useState<any[]>([]);
+  const [isDetectingToken, setIsDetectingToken] = useState(false);
+
+  const detectUsbHardware = async () => {
+    if (typeof window === "undefined" || !(window as any).electronAPI?.detectUsbTokens) return;
+    setIsDetectingToken(true);
+    try {
+      const res = await (window as any).electronAPI.detectUsbTokens();
+      if (res.connected && res.tokens && res.tokens.length > 0) {
+        setDetectedTokens(res.tokens);
+        setTokenProvider(res.tokens[0].provider || "VIETTEL-CA USB TOKEN");
+        toast.success("Đã tìm thấy USB Token trên máy tính!", {
+          description: res.tokens[0].subject || res.message,
+        });
+      } else {
+        setDetectedTokens([]);
+      }
+    } catch {
+      setDetectedTokens([]);
+    } finally {
+      setIsDetectingToken(false);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && (window as any).electronAPI?.isDesktop) {
+      setIsDesktopApp(true);
+      detectUsbHardware();
+    }
+  }, []);
+
   useEffect(() => {
     const token = getCookie("auth_token") as string;
     if (!token) {
@@ -152,6 +185,14 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
           toast.warning("Vui lòng nhập mã PIN của USB Token để xác thực ký số!");
           return;
         }
+
+        if (isDesktopApp && detectedTokens.length === 0) {
+          toast.error("Chưa phát hiện USB Token cắm vào máy tính!", {
+            description: "Vui lòng cắm USB Token Viettel/VNPT vào máy tính và bấm 'Quét lại' trước khi ký.",
+          });
+          return;
+        }
+
         setSubmittingAction(true);
         // Mô phỏng kết nối và đọc phần cứng USB Token PKCS#11
         await new Promise(r => setTimeout(r, 600));
@@ -478,9 +519,55 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                             Thông số thiết bị USB Token phần cứng (PKCS#11)
                           </span>
                           <span className="text-[11px] text-amber-700 font-semibold bg-amber-100/80 px-2 py-0.5 rounded">
-                            Tự động nhận diện thiết bị
+                            {isDesktopApp ? "🖥️ Desktop Hardware Engine" : "🌐 Web Simulation"}
                           </span>
                         </div>
+
+                        {/* Real-time Hardware Status based on Desktop or Web */}
+                        {isDesktopApp ? (
+                          detectedTokens.length > 0 ? (
+                            <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-md space-y-1 text-xs text-emerald-900">
+                              <div className="font-bold flex items-center gap-1.5 text-emerald-800">
+                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                                ĐÃ KẾT NỐI USB TOKEN THẬT TRÊN MÁY TÍNH
+                              </div>
+                              <div className="text-slate-800 truncate">
+                                <strong>Chủ thể:</strong> {detectedTokens[0].subject}
+                              </div>
+                              <div className="text-slate-600 font-mono text-[11px]">
+                                <strong>Serial:</strong> {detectedTokens[0].serialNumber} | <strong>Hạn dùng:</strong> {detectedTokens[0].validTo}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-3 bg-red-50 border border-red-300 rounded-md flex items-center justify-between gap-3 text-xs text-red-900">
+                              <div className="flex items-center gap-2">
+                                <span className="text-base shrink-0">⚠️</span>
+                                <div>
+                                  <strong>Chưa cắm USB Token:</strong> Không tìm thấy chứng thư số trong USB. Vui lòng cắm USB vào máy tính để ký.
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={isDetectingToken}
+                                onClick={detectUsbHardware}
+                                className="text-xs border-red-300 bg-white hover:bg-red-50 text-red-700 h-7 shrink-0 font-medium"
+                              >
+                                {isDetectingToken ? "Đang quét..." : "🔄 Quét lại"}
+                              </Button>
+                            </div>
+                          )
+                        ) : (
+                          <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-xs text-blue-900 space-y-1">
+                            <div className="font-semibold flex items-center gap-1.5 text-blue-800">
+                              <span>🌐 Đang sử dụng phiên bản Web Browser</span>
+                            </div>
+                            <p className="text-slate-600 text-[11px] leading-relaxed">
+                              Trình duyệt web không thể can thiệp trực tiếp vào cổng USB vật lý. Bạn có thể ký duyệt bằng <strong>Ký tay điện tử</strong>, hoặc mở bằng <strong>Phần mềm Ký Duyệt Desktop</strong> để cắm USB Token thật.
+                            </p>
+                          </div>
+                        )}
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div className="space-y-1">
@@ -510,9 +597,9 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-md text-xs text-emerald-800">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
-                          <span><strong>Đã kết nối thiết bị USB Token:</strong> Mã băm SHA-256 của văn bản sẽ được mã hóa và ký trực tiếp trong vi xử lý bảo mật của Token.</span>
+                        <div className="flex items-center gap-2 p-2 bg-amber-50/70 border border-amber-200 rounded-md text-[11px] text-slate-600">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+                          <span>Mã băm SHA-256 của văn bản sẽ được mã hóa và ký trực tiếp trong vi xử lý bảo mật của Token.</span>
                         </div>
                       </div>
                     )}
